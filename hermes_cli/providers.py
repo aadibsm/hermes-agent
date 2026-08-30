@@ -23,7 +23,12 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from utils import base_url_host_matches, base_url_hostname
+import importlib.util as _ilu3, pathlib as _pl3
+_spec3 = _ilu3.spec_from_file_location('hermes_utils3', '/home/hermes/.hermes/hermes-agent/utils.py')
+_mod3 = _ilu3.module_from_spec(_spec3)
+_spec3.loader.exec_module(_mod3)
+base_url_host_matches = _mod3.base_url_host_matches
+base_url_hostname = _mod3.base_url_hostname
 
 logger = logging.getLogger(__name__)
 

@@ -10,7 +10,12 @@ import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
-from utils import atomic_replace, fast_safe_load
+import importlib.util as _ilu_tmp, pathlib as _pl_tmp
+_spec_tmp = _ilu_tmp.spec_from_file_location('hermes_top_utils', str(_pl_tmp.Path(__file__).parent.parent / 'utils.py'))
+_mod_tmp = _ilu_tmp.module_from_spec(_spec_tmp)
+_spec_tmp.loader.exec_module(_mod_tmp)
+atomic_replace = _mod_tmp.atomic_replace
+fast_safe_load = _mod_tmp.fast_safe_load
 
 
 # Env var name suffixes that indicate credential values.  These are the

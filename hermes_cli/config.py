@@ -765,7 +765,12 @@ def get_container_exec_info() -> Optional[dict]:
 
 # Re-export from hermes_constants — canonical definition lives there.
 from hermes_constants import get_hermes_home, get_process_hermes_home  # noqa: F811,E402
-from utils import atomic_replace, fast_safe_load
+import importlib.util as _ilu_tmp, pathlib as _pl_tmp
+_spec_tmp = _ilu_tmp.spec_from_file_location('hermes_top_utils', str(_pl_tmp.Path(__file__).parent.parent / 'utils.py'))
+_mod_tmp = _ilu_tmp.module_from_spec(_spec_tmp)
+_spec_tmp.loader.exec_module(_mod_tmp)
+atomic_replace = _mod_tmp.atomic_replace
+fast_safe_load = _mod_tmp.fast_safe_load
 
 def get_config_path() -> Path:
     """Get the main config file path."""
