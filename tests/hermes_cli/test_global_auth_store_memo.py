@@ -112,3 +112,17 @@ class TestLoadGlobalAuthStoreMemo:
         )
         assert auth_mod._load_global_auth_store() == {}
         assert auth_mod._global_auth_store_cache is None
+
+    def test_unreadable_global_store_returns_empty_without_error(self, monkeypatch):
+        """An isolated profile must tolerate an unreadable global fallback."""
+
+        class UnreadablePath:
+            def exists(self):
+                raise PermissionError("global auth store is private")
+
+        monkeypatch.setattr(
+            auth_mod, "_global_auth_file_path", lambda: UnreadablePath()
+        )
+
+        assert auth_mod._load_global_auth_store() == {}
+        assert auth_mod._global_auth_store_cache is None

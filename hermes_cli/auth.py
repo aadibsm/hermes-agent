@@ -1192,7 +1192,19 @@ def _load_global_auth_store() -> Dict[str, Any]:
     """
     global _global_auth_store_cache
     global_path = _global_auth_file_path()
-    if global_path is None or not global_path.exists():
+    if global_path is None:
+        _global_auth_store_cache = None
+        return {}
+    try:
+        if not global_path.exists():
+            _global_auth_store_cache = None
+            return {}
+    except OSError:
+        # Profile-isolated processes may intentionally lack permission to
+        # inspect the shared global auth store. Treat that store as an
+        # unavailable read-only fallback; the profile-local store remains
+        # authoritative and must not be made less private to satisfy this
+        # optional lookup.
         _global_auth_store_cache = None
         return {}
     try:
