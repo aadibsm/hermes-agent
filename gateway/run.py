@@ -14048,6 +14048,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 connected_count += 1
                 self._update_platform_runtime_status(
                     platform.value, platform_state="connected", error_code=None, error_message=None,
+                    # A fresh connect proves the platform is healthy: clear any
+                    # stale NEEDS_ATTENTION / retrying_since persisted by a prior
+                    # process (the reconnect path below already does this).
+                    needs_attention=False, retrying_since=None,
                 )
                 logger.info("\u2713 %s connected", platform.value)
             else:  # outcome == "failed"
