@@ -13,6 +13,11 @@ import os
 logger = logging.getLogger(__name__)
 
 DEFAULT_CODEX_MODELS: List[str] = [
+    # GPT-6 series. Pro/fast/flex variants are API/OpenRouter models; the
+    # ChatGPT Codex OAuth backend exposes the base routable slugs only.
+    "gpt-6-sol",
+    "gpt-6-terra",
+    "gpt-6-luna",
     # GPT-5.6 series (Sol/Terra/Luna). The public API exposes "-pro"
     # variants, but the ChatGPT Codex OAuth backend rejects them with HTTP 400,
     # so the curated offline fallback must not surface those dead choices.
@@ -51,6 +56,9 @@ DEFAULT_CODEX_MODELS: List[str] = [
 ]
 
 _FORWARD_COMPAT_TEMPLATE_MODELS: List[tuple[str, tuple[str, ...]]] = [
+    ("gpt-6-sol", ("gpt-5.6-sol", "gpt-5.5")),
+    ("gpt-6-terra", ("gpt-5.6-terra", "gpt-5.5")),
+    ("gpt-6-luna", ("gpt-5.6-luna", "gpt-5.5")),
     ("gpt-5.6-sol", ("gpt-5.5", "gpt-5.4")),
     ("gpt-5.6-terra", ("gpt-5.5", "gpt-5.4")),
     ("gpt-5.6-luna", ("gpt-5.5", "gpt-5.4")),
@@ -159,15 +167,23 @@ def _fetch_models_from_api(access_token: str) -> List[str]:
         acct_id = _extract_chatgpt_account_id(access_token)
         if acct_id:
             headers["ChatGPT-Account-Id"] = acct_id
-        resp = httpx.get(
-            "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0",
-            headers=headers,
-            timeout=10,
-        )
-        if resp.status_code != 200:
-            return []
-        data = resp.json()
-        entries = data.get("models", []) if isinstance(data, dict) else []
+        # The Codex endpoint gates models by client_version.  New GPT-6
+        # releases are omitted for the legacy 1.0.0 client, so ask as a
+        # current client first and retain the old query as compatibility
+        # fallback for older backend deployments.
+        entries = []
+        for client_version in ("99.0.0", "1.0.0"):
+            resp = httpx.get(
+                f"https://chatgpt.com/backend-api/codex/models?client_version={client_version}",
+                headers=headers,
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            entries = data.get("models", []) if isinstance(data, dict) else []
+            if entries:
+                break
     except Exception as exc:
         logger.debug("Failed to fetch Codex models from API: %s", exc)
         return []

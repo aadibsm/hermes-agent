@@ -453,6 +453,10 @@ DEFAULT_CONTEXT_LENGTHS = {
     # GPT-5.6 series (Sol/Terra/Luna, GA 2026-07-09) — 1.05M on the direct
     # OpenAI API (same as gpt-5.5). Codex OAuth caps these at 272K.
     # (Lookups length-sort keys at match time, so dict order is cosmetic.)
+    "gpt-6-astra": 1050000,
+    "gpt-6-sol": 1050000,
+    "gpt-6-terra": 1050000,
+    "gpt-6-luna": 1050000,
     "gpt-5.6-luna": 1050000,
     "gpt-5.6-terra": 1050000,
     "gpt-5.6-sol": 1050000,
@@ -2505,6 +2509,10 @@ _CODEX_OAUTH_CONTEXT_FALLBACK: Dict[str, int] = {
     "gpt-5.3-codex-spark": 128_000,
     "gpt-5.2-codex": 272_000,
     "gpt-5.4-mini": 272_000,
+    "gpt-6-astra": 272_000,
+    "gpt-6-sol": 272_000,
+    "gpt-6-terra": 272_000,
+    "gpt-6-luna": 272_000,
     "gpt-5.6-sol": 272_000,
     "gpt-5.6-terra": 272_000,
     "gpt-5.6-luna": 272_000,
@@ -2547,6 +2555,7 @@ _CODEX_OAUTH_CONTEXT_FALLBACK: Dict[str, int] = {
 # gpt-5.4-mini was probed and genuinely enforces 272K (rejected 500K), so
 # prefix-matching the 5.4 family would over-report for mini.
 _CODEX_OAUTH_VERIFIED_ABOVE_ADVERTISED_PREFIXES: Dict[str, int] = {
+    "gpt-6": 900_000,
     "gpt-5.6": 900_000,   # sol / terra / luna — all three verified live at 900K
 }
 _CODEX_OAUTH_VERIFIED_ABOVE_ADVERTISED_EXACT: Dict[str, int] = {
@@ -2568,13 +2577,17 @@ CODEX_CONTEXT_VARIANT_SUFFIX = "-900k"
 # were never probed. Dated snapshots of the routable 5.6 bases are allowed
 # via _CODEX_900K_SNAPSHOT_RE.
 _CODEX_900K_ELIGIBLE_BASES = frozenset({
+    "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6-terra",
+    "gpt-6-luna",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
     "gpt-5.4",                    # exact; gpt-5.4-mini enforces 272K
     "gpt-daybreak-blue-latest",   # verified Sol alias
 })
-_CODEX_900K_SNAPSHOT_BASES = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+_CODEX_900K_SNAPSHOT_BASES = ("gpt-6-astra", "gpt-6-sol", "gpt-6-terra", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
 _CODEX_900K_SNAPSHOT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -2737,24 +2750,26 @@ def _fetch_codex_oauth_context_lengths_with_source(
 
     try:
         _ensure_requests()
-        resp = requests.get(
-            "https://chatgpt.com/backend-api/codex/models?client_version=1.0.0",
-            headers=headers,
-            timeout=(5, 10),
-            verify=_resolve_requests_verify(),
-        )
-        if resp.status_code != 200:
-            logger.debug(
-                "Codex /models probe returned HTTP %s; falling back to hardcoded defaults",
-                resp.status_code,
+        entries = []
+        for client_version in ("99.0.0", "1.0.0"):
+            resp = requests.get(
+                f"https://chatgpt.com/backend-api/codex/models?client_version={client_version}",
+                headers=headers,
+                timeout=(5, 10),
+                verify=_resolve_requests_verify(),
             )
+            if resp.status_code == 200:
+                data = resp.json()
+                entries = data.get("models", []) if isinstance(data, dict) else []
+                if entries:
+                    break
+        if not entries:
+            logger.debug("Codex /models probe returned no models; falling back to hardcoded defaults")
             return {}, False
-        data = resp.json()
     except Exception as exc:
         logger.debug("Codex /models probe failed: %s", exc)
         return {}, False
 
-    entries = data.get("models", []) if isinstance(data, dict) else []
     result: Dict[str, int] = {}
     for item in entries:
         if not isinstance(item, dict):
