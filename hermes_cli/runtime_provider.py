@@ -981,18 +981,6 @@ def _openrouter_fallback(requested_provider, explicit_api_key, explicit_base_url
 
 def resolve_runtime_provider(*, requested: Optional[str] = None, explicit_api_key: Optional[str] = None,
                              explicit_base_url: Optional[str] = None, target_model: Optional[str] = None) -> Dict[str, Any]:
-    # Explicit Codex broker opt-in precedes local OAuth/pool resolution.
-    # Never use a caller-supplied base URL or API key with this route.
-    if requested_provider == "openai-codex":
-        from agent.codex_broker_route import codex_broker_route
-        broker = codex_broker_route()
-        if broker is not None:
-            return {
-                "provider": "openai-codex", "api_mode": "codex_responses",
-                "base_url": broker[0], "api_key": broker[1],
-                "source": "codex-broker", "requested_provider": requested_provider,
-            }
-
     """Resolve runtime provider credentials for agent execution. Ladder (order is behavior — each
     rung returns or raises, else falls to the next):
       1. disabled-provider guard (``providers.<name>.enabled: false``)
@@ -1010,6 +998,17 @@ def resolve_runtime_provider(*, requested: Optional[str] = None, explicit_api_ke
     target_model overrides model_cfg["default"] when computing provider-specific api_mode (e.g.
     OpenCode Zen/Go where different models route through different API surfaces)."""
     requested_provider = resolve_requested_provider(requested)
+    # Explicit Codex broker opt-in precedes local OAuth/pool resolution.
+    # Never use a caller-supplied base URL or API key with this route.
+    if requested_provider == "openai-codex":
+        from agent.codex_broker_route import codex_broker_route
+        broker = codex_broker_route()
+        if broker is not None:
+            return {
+                "provider": "openai-codex", "api_mode": "codex_responses",
+                "base_url": broker[0], "api_key": broker[1],
+                "source": "codex-broker", "requested_provider": requested_provider,
+            }
     _raise_if_provider_disabled(requested_provider)
     # Same alias expansion the auxiliary client applies, so ``provider: openai`` means one thing on
     # every path (background review, curator, MoA slots, delegation) instead of "Unknown provider".
