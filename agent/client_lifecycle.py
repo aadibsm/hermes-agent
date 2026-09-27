@@ -568,6 +568,12 @@ class ClientLifecycleMixin:
         return self._replace_primary_openai_client(reason=reason)
 
     def _try_refresh_codex_client_credentials(self, *, force: bool = True) -> bool:
+        if self.provider == "openai-codex":
+            from agent.codex_broker_route import codex_broker_route
+            broker = codex_broker_route()
+            if broker is not None and self.base_url.rstrip("/") == broker[0]:
+                # Only the owner broker may refresh/rotate its OAuth credentials.
+                return False
         if self.api_mode != "codex_responses" or self.provider not in {"openai-codex", "xai-oauth"}:
             return False
         # No silent account swap: a non-singleton credential (manual pool entry, explicit api_key=) must not be

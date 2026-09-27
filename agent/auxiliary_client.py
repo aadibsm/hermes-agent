@@ -2949,6 +2949,11 @@ def _build_codex_client(model: str) -> Tuple[Optional[Any], Optional[str]]:
             "pass model explicitly (auxiliary.<task>.model in config.yaml)."
         )
         return None, None
+    from agent.codex_broker_route import codex_broker_route
+    broker = codex_broker_route()
+    if broker is not None:
+        real_client = _create_openai_client(api_key=broker[1], base_url=broker[0])
+        return CodexAuxiliaryClient(real_client, model), model
     codex_token, base_url = _resolve_codex_credential_and_base()
     if not codex_token:
         return None, None
