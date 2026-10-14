@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { downloadGatewayMediaFile } from '@/lib/media'
 import { $connection } from '@/store/session'
 import type { SessionInfo, SessionMessage } from '@/types/hermes'
 
@@ -415,6 +416,57 @@ ${payload}
 
     expect(artifacts).toHaveLength(1)
     expect(artifacts[0]).toMatchObject({ kind: 'file', value: '/tmp/generated/palette.icc' })
+  })
+
+  it('indexes explicitly reported tool outputs without an extension allowlist', () => {
+    const session = makeSession({ profile: 'research' })
+    const paths = ['/home/example/report data.parquet', '/home/example/calendar.ics', '/home/example/README']
+    const artifacts = collectArtifactsForSession(session, [
+      {
+        content: JSON.stringify({ success: true, path: paths[0] }),
+        role: 'tool',
+        tool_name: 'write_file'
+      },
+      {
+        content: { output_path: paths[1], files_created: [paths[2]] },
+        role: 'tool',
+        tool_name: 'dataset_export'
+      }
+    ])
+
+    expect(artifacts.map(artifact => artifact.value)).toEqual(paths)
+    for (const artifact of artifacts) {
+      expect(artifact).toMatchObject({ kind: 'file', profile: session.profile, sessionId: session.id })
+      expect(decodeURIComponent(new URL(artifact.href).pathname)).toBe(artifact.value)
+    }
+  })
+
+  it('keeps opaque generated files available to the session-scoped download bridge', async () => {
+    const session = makeSession({ profile: 'research' })
+    const path = '/home/example/generated/report data.parquet'
+    const saveGatewayFile = vi.fn(async () => ({ saved: true }))
+    vi.stubGlobal('window', { hermesDesktop: { saveGatewayFile } })
+    $connection.set({ connectionId: 'research-gateway', mode: 'remote', profile: 'foreground' } as never)
+
+    const [artifact] = collectArtifactsForSession(session, [
+      {
+        content: JSON.stringify({ files_modified: [path], verified: true }),
+        role: 'tool',
+        tool_name: 'write_file'
+      }
+    ])
+
+    expect(artifact).toBeDefined()
+    await expect(
+      downloadGatewayMediaFile(artifact.value, { sessionId: artifact.sessionId, profile: artifact.profile })
+    ).resolves.toEqual({ saved: true })
+    expect(saveGatewayFile).toHaveBeenCalledWith({
+      connectionId: 'research-gateway',
+      path,
+      profile: session.profile,
+      sessionId: session.id,
+      suggestedName: 'report data.parquet'
+    })
   })
 
   it('does not index extensionless or unknown-extension bare paths from prose', () => {

@@ -484,8 +484,10 @@ function collectArtifactsFromMessage(message: SessionMessage, pushValue: PushVal
 
       const normalized = normalizeValue(decodeMediaHrefValue(value))
 
-      if (normalized && looksLikeArtifact(normalized)) {
-        pushValue(normalized)
+      // This key already identifies a produced file. Like MEDIA deliveries,
+      // it must retain opaque formats instead of applying the prose allowlist.
+      if (normalized && looksLikeArtifact(normalized, true)) {
+        pushValue(normalized, true)
       }
     })
   }
