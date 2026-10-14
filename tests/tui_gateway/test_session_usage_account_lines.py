@@ -8,6 +8,8 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from agent.account_usage import AccountUsageSnapshot, AccountUsageWindow
 
 
@@ -50,6 +52,38 @@ def test_session_usage_rpc_ships_account_lines_for_the_live_route():
     assert result["account_lines"]
 
 
+@pytest.mark.parametrize("arg", ["reset", "reset --force", "nonsense", "help"])
+@pytest.mark.parametrize("active", [True, False])
+def test_slash_usage_arguments_are_explicit_and_never_redeem(monkeypatch, arg, active):
+    from tui_gateway import server
+
+    sid = "sid-usage-arguments"
+    session = {"agent": SimpleNamespace(model="fixture-model") if active else None,
+               "history": [], "history_lock": threading.RLock(),
+               "running": True, "session_key": "durable-usage-arguments"}
+    monkeypatch.setitem(server._sessions, sid, session)
+    with (
+        patch.object(server, "_session_usage_snapshot", return_value={}),
+        patch("agent.account_usage.fetch_account_usage") as fetch,
+        patch("agent.account_usage.redeem_codex_reset_credit") as redeem,
+        patch.object(server, "_SlashWorker") as worker,
+    ):
+        response = server._methods["slash.exec"]("r", {"session_id": sid, "command": f"/usage {arg}"})
+        assert "error" not in response, response
+        output = response["result"]["output"]
+        assert "/usage — refresh" in output
+        assert "/usage help" in output
+        assert "reset is not supported" in output
+        if arg == "nonsense":
+            assert "Unsupported /usage argument: nonsense" in output
+        assert "Session Token Usage" not in output
+        fetch.assert_not_called()
+        redeem.assert_not_called()
+        worker.assert_not_called()
+    assert server._sessions[sid] is session
+    assert session["running"] is True
+
+
 def test_slash_usage_refetches_account_limits_without_replacing_the_session(monkeypatch):
     from tui_gateway import server
 
@@ -88,6 +122,55 @@ def test_slash_usage_refetches_account_limits_without_replacing_the_session(monk
     assert server._sessions[sid] is session
     assert session["agent"] is agent and session["history"] is history
     assert session["session_key"] == "durable-slash-usage" and session["running"] is True
+
+
+def test_usage_banked_credit_count_has_no_unsupported_reset_cta(monkeypatch):
+    from agent import account_usage
+    from tui_gateway import server
+
+    sid = "sid-banked-usage"
+    agent = SimpleNamespace(provider="openai-codex", base_url="https://fixture.invalid/backend-api",
+                            api_key="fixture-token", model="fixture-model")
+    monkeypatch.setitem(server._sessions, sid, {
+        "agent": agent, "history": [], "history_lock": threading.RLock(),
+        "running": True, "session_key": "durable-banked-usage",
+    })
+    payload = {"rate_limit_reset_credits": {"available_count": 3},
+               "rate_limit": {"primary_window": {"used_percent": 100}},
+               "credits": {"has_credits": True, "balance": 7.5}}
+    with (
+        patch.object(server, "_session_usage_snapshot", return_value={"total": 30}),
+        patch.object(account_usage, "_resolve_codex_usage_credentials",
+                     return_value=("fixture-token", agent.base_url, None)),
+        patch.object(account_usage, "_get_json", return_value=payload) as get,
+        patch.object(account_usage, "redeem_codex_reset_credit") as redeem,
+        patch.object(account_usage.httpx, "Client") as client,
+        patch.object(account_usage, "nous_credits_lines", return_value=[]),
+        patch.object(server, "_SlashWorker") as worker,
+    ):
+        snapshot = account_usage.fetch_account_usage("openai-codex", base_url=agent.base_url, api_key=agent.api_key)
+        # CLI/Gateway retain their working reset affordance by default, in both render modes.
+        for markdown in (False, True):
+            assert "use /usage reset to activate" in "\n".join(
+                account_usage.render_account_usage_lines(snapshot, markdown=markdown))
+        from hermes_cli.subcommands.usage import usage_snapshot_document
+        assert usage_snapshot_document(snapshot)["details"] == [
+            "You have 3 resets banked - use /usage reset to activate", "Credits balance: $7.50",
+        ]
+        response = server._methods["slash.exec"]("r", {"session_id": sid, "command": "/usage"})
+        assert "error" not in response, response
+        feed = server._methods["session.usage"]("feed", {"session_id": sid})
+        assert "error" not in feed, feed
+        for output in (response["result"]["output"], "\n".join(feed["result"]["account_lines"])):
+            assert "3 resets banked" in output
+            assert "100% used" in output
+            assert "Credits balance: $7.50" in output
+            assert "use /usage reset" not in output
+            assert "reset redemption is not supported" in output
+        assert get.call_count == 3
+        redeem.assert_not_called()
+        client.assert_not_called()
+        worker.assert_not_called()
 
 
 def test_slash_usage_keeps_profile_scope_and_token_output_on_fetch_failure(tmp_path, monkeypatch):

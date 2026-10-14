@@ -61,6 +61,13 @@ def _format_live_review_output(sid: str, session: Optional[dict], arg: str) -> s
 
 
 def _format_live_usage_output(sid: str, session: dict, arg: str) -> str:
+    if arg := arg.strip():
+        help_text = (
+            "/usage — refresh live session token usage and provider account limits.\n"
+            "/usage help — show this help.\n"
+            "/usage reset is not supported in Desktop/TUI; no reset credit was redeemed."
+        )
+        return help_text if arg == "help" else f"Unsupported /usage argument: {arg}\n{help_text}"
     agent = session.get("agent")
     usage = _session_usage_snapshot(session)
     if agent is None and not usage:

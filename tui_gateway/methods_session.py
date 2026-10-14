@@ -1337,7 +1337,7 @@ def _account_usage_lines(session: dict) -> list[str]:
         return []
     snapshot = fetch_account_usage(
         provider, base_url=getattr(agent, "base_url", None), api_key=getattr(agent, "api_key", None))
-    return render_account_usage_lines(snapshot)
+    return render_account_usage_lines(snapshot, reset_supported=False)
 
 
 @_session_method("session.context_breakdown")

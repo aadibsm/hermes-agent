@@ -47,10 +47,11 @@ class AccountUsageSnapshot:
     # Exact decoded provider response body (no headers/credentials) for integrations that need
     # fields Hermes does not normalize yet. Only populated by providers that fetch a JSON body.
     raw: Optional[dict] = None
+    banked_reset_count: int = 0
 
     @property
     def available(self) -> bool:
-        return bool(self.windows or self.details) and not self.unavailable_reason
+        return bool(self.windows or self.details or self.banked_reset_count) and not self.unavailable_reason
 
 
 def _snapshot(provider: str, source: str, windows: list, details: list, **kw: Any) -> AccountUsageSnapshot:
@@ -95,7 +96,9 @@ def _format_reset(dt: Optional[datetime]) -> str:
     return f"resets in {hours}h {minutes}m ({stamp})" if hours else f"resets in {minutes}m ({stamp})"
 
 
-def render_account_usage_lines(snapshot: Optional[AccountUsageSnapshot], *, markdown: bool = False) -> list[str]:
+def render_account_usage_lines(
+    snapshot: Optional[AccountUsageSnapshot], *, markdown: bool = False, reset_supported: bool = True,
+) -> list[str]:
     if not snapshot:
         return []
     bold = "**" if markdown else ""
@@ -112,10 +115,20 @@ def render_account_usage_lines(snapshot: Optional[AccountUsageSnapshot], *, mark
         elif window.detail:
             base += f" • {window.detail}"
         lines.append(base)
-    lines.extend(snapshot.details)
+    lines.extend(render_account_usage_details(snapshot, reset_supported=reset_supported))
     if snapshot.unavailable_reason:
         lines.append(f"Unavailable: {snapshot.unavailable_reason}")
     return lines
+
+
+def render_account_usage_details(snapshot: AccountUsageSnapshot, *, reset_supported: bool = True) -> list[str]:
+    """Keep banked credits structured so read-only surfaces do not advertise redemption."""
+    lines = []
+    if snapshot.banked_reset_count > 0:
+        count = snapshot.banked_reset_count
+        action = "use /usage reset to activate" if reset_supported else "reset redemption is not supported in Desktop/TUI"
+        lines.append(f"You have {count} reset{_plural(count)} banked - {action}")
+    return lines + list(snapshot.details)
 
 
 def _fmt_usd(d: float) -> str:
@@ -453,15 +466,13 @@ def _fetch_codex_account_usage(
     windows = _usage_windows(rate_limit, _codex_window_labels(rate_limit), "used_percent", "reset_at")
     details: list[str] = []
     count = _codex_banked_resets(payload)
-    if count > 0:
-        details.append(f"You have {count} reset{_plural(count)} banked - use /usage reset to activate")
     credits, balance = payload.get("credits") or {}, (payload.get("credits") or {}).get("balance")
     if credits.get("has_credits") and _is_num(balance):
         details.append(f"Credits balance: ${float(balance):.2f}")
     elif credits.get("has_credits") and credits.get("unlimited"):
         details.append("Credits balance: unlimited")
     return _snapshot("openai-codex", "usage_api", windows, details, plan=_title_case_slug(payload.get("plan_type")),
-                     raw=payload)
+                     raw=payload, banked_reset_count=count)
 
 
 @dataclass(frozen=True)

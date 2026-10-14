@@ -15,6 +15,8 @@ import sys
 def usage_snapshot_document(snapshot) -> dict:
     """``hermes usage --json`` document. Schema is documented in website/docs/reference/cli-commands.md —
     keep the keys stable; extend only by adding keys."""
+    from agent.account_usage import render_account_usage_details
+
     return {
         "provider": snapshot.provider,
         "source": snapshot.source,
@@ -30,7 +32,7 @@ def usage_snapshot_document(snapshot) -> dict:
             }
             for window in snapshot.windows
         ],
-        "details": list(snapshot.details),
+        "details": render_account_usage_details(snapshot),
         "unavailable_reason": snapshot.unavailable_reason,
     }
 
