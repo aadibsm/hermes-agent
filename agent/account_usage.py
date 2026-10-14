@@ -81,15 +81,18 @@ def _format_reset(dt: Optional[datetime]) -> str:
     if not dt:
         return "unknown"
     stamp = safe_strftime(dt.astimezone(), "%Y-%m-%d %H:%M %Z")
-    total_seconds = int((dt - _utc_now()).total_seconds())
+    total_seconds = (dt - _utc_now()).total_seconds()
     if total_seconds <= 0:
-        return f"now ({stamp})"
-    hours, rem = divmod(total_seconds, 3600)
+        # A passed deadline is not evidence that the provider restored quota.
+        return f"reset time passed ({stamp}) — run /usage to confirm"
+    if total_seconds < 60:
+        return f"resets in <1m ({stamp})"
+    hours, rem = divmod(int(total_seconds), 3600)
     minutes = rem // 60
     if hours >= 24:
         days, hours = divmod(hours, 24)
-        return f"in {days}d {hours}h ({stamp})"
-    return f"in {hours}h {minutes}m ({stamp})" if hours else f"in {minutes}m ({stamp})"
+        return f"resets in {days}d {hours}h ({stamp})"
+    return f"resets in {hours}h {minutes}m ({stamp})" if hours else f"resets in {minutes}m ({stamp})"
 
 
 def render_account_usage_lines(snapshot: Optional[AccountUsageSnapshot], *, markdown: bool = False) -> list[str]:
@@ -105,7 +108,7 @@ def render_account_usage_lines(snapshot: Optional[AccountUsageSnapshot], *, mark
             used = float(window.used_percent)
             base = f"{window.label}: {max(0, round(100 - used))}% remaining ({max(0, round(used))}% used)"
         if window.reset_at:
-            base += f" • resets {_format_reset(window.reset_at)}"
+            base += f" • {_format_reset(window.reset_at)}"
         elif window.detail:
             base += f" • {window.detail}"
         lines.append(base)
