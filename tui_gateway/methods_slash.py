@@ -85,7 +85,12 @@ def _format_live_usage_output(sid: str, session: dict, arg: str) -> str:
     rows += [("Messages:", f"{message_count:,}"), ("Compressions:", n("compressions"))]
     model = usage.get("model") or _metadata_mirror(session).get("model") or getattr(agent, "model", "") or "(unknown)"
     lines = ["Session Token Usage", "────────────────────────────────────────", f"Model: {model}"]
-    return "\n".join(lines + [f"{label:<30}{value}" for label, value in rows])
+    lines += [f"{label:<30}{value}" for label, value in rows]
+    # Reuse the usage feed's provider fetch, but bind the owning profile on this off-turn RPC path.
+    with contextlib.suppress(Exception), _session_profile_runtime_scope(session):
+        if account := _account_usage_lines(session):
+            lines += [""] + account
+    return "\n".join(lines)
 
 
 def _live_session_messages(session: dict) -> Optional[list]:
