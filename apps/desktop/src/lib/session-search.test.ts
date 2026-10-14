@@ -66,6 +66,61 @@ describe('sessionMatchesSearch', () => {
     expect(sessionMatchesSearch(makeSession({ source: 'bluebubbles' }), 'imessage')).toBe(true)
   })
 
+  it('narrows by all search words across title, workspace, branch, source, and identity', () => {
+    const session = makeSession({
+      source: 'telegram',
+      git_branch: 'feat/search',
+      _lineage_root_id: '20260602_root99'
+    })
+
+    expect(sessionMatchesSearch(session, 'telegram hermes-agent search')).toBe(true)
+    expect(sessionMatchesSearch(session, 'ROOT99 feature feat/search')).toBe(true)
+    expect(sessionMatchesSearch(session, 'search telegram missing')).toBe(false)
+    expect(sessionMatchesSearch(session, 'desktop telegram')).toBe(true)
+    expect(sessionMatchesSearch(makeSession(), 'desktop telegram')).toBe(false)
+  })
+
+  it('ignores word order, repeated words, and extra whitespace', () => {
+    const session = makeSession({ source: 'telegram', git_branch: 'feat/search' })
+
+    expect(sessionMatchesSearch(session, '  SEARCH\ttelegram\nhermes-agent  ')).toBe(true)
+    expect(sessionMatchesSearch(session, 'telegram search search')).toBe(true)
+  })
+
+  it.each(['', ' ', '\t\n'])('keeps all sessions for an empty query (%j)', query => {
+    expect(sessionMatchesSearch(makeSession(), query)).toBe(true)
+  })
+
+  it('matches partial words without treating punctuation as search syntax', () => {
+    const session = makeSession({ git_branch: 'feat/search' })
+
+    expect(sessionMatchesSearch(session, 'feat/ hermes-')).toBe(true)
+    expect(sessionMatchesSearch(session, 'feat/*')).toBe(false)
+    expect(sessionMatchesSearch(session, 'desktop | unrelated')).toBe(false)
+  })
+
+  it('requires every clue to belong to the same session when filtering a list', () => {
+    const matching = makeSession({ source: 'telegram', git_branch: 'feat/search' })
+
+    const sessions = [
+      makeSession({ id: 'wrong-workspace', source: 'telegram', cwd: '/projects/other' }),
+      matching,
+      makeSession({ id: 'wrong-source', source: 'slack', git_branch: 'feat/search' })
+    ]
+
+    expect(sessions.filter(session => sessionMatchesSearch(session, 'telegram hermes-agent search'))).toEqual([
+      matching
+    ])
+  })
+
+  it('handles absent optional metadata and searches the preview fallback', () => {
+    const session = makeSession({ title: null, preview: 'Recover history', cwd: undefined, source: undefined })
+
+    expect(sessionMatchesSearch(session, 'history recover')).toBe(true)
+    expect(sessionMatchesSearch(session, 'recover telegram')).toBe(false)
+    expect(sessionMatchesSearch(session, 'recover hermes-agent')).toBe(false)
+  })
+
   it('does not match unrelated queries', () => {
     expect(sessionMatchesSearch(makeSession(), 'totally-unrelated')).toBe(false)
   })

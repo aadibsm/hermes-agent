@@ -11,7 +11,7 @@ export function sessionMatchesSearch(session: SessionInfo, query: string): boole
     return true
   }
 
-  return [
+  const fields = [
     session.id,
     session._lineage_root_id ?? '',
     sessionTitle(session),
@@ -19,5 +19,8 @@ export function sessionMatchesSearch(session: SessionInfo, query: string): boole
     session.cwd ?? '',
     session.git_branch ?? '',
     ...sessionSourceSearchTerms(session.source)
-  ].some(value => value.toLowerCase().includes(needle))
+  ].map(value => value.toLowerCase())
+
+  // Each word narrows the list, even when the clues live in different fields.
+  return needle.split(/\s+/).every(term => fields.some(value => value.includes(term)))
 }
