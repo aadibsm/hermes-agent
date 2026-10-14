@@ -595,10 +595,62 @@ def profile_cli_selector() -> str:
     return f"-p {name} " if name and name != "default" else ""
 
 
+_SHARED_HOME_ACL_POLICY = Path("/etc/hermes/shared-home-acl.json")
+
+
+def _operator_managed_home_acl(path: str | Path) -> bool:
+    """Preserve only an exact directory explicitly delegated by a trusted root policy.
+
+    Descendants, profile secrets, and untrusted/malformed policies retain the
+    normal owner-only policy. No permissions are granted by this exception.
+    """
+    import json
+
+    try:
+        policy = _SHARED_HOME_ACL_POLICY
+        for ancestor in policy.parents:
+            st = os.stat(ancestor, follow_symlinks=False)
+            if not stat.S_ISDIR(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
+                return False
+        st = os.stat(policy, follow_symlinks=False)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
+            return False
+        fd = os.open(policy, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            opened = os.fstat(fd)
+            if ((opened.st_dev, opened.st_ino) != (st.st_dev, st.st_ino)
+                    or opened.st_uid != 0 or opened.st_mode & 0o022
+                    or not stat.S_ISREG(opened.st_mode)):
+                return False
+            raw = os.read(fd, 4097)
+        finally:
+            os.close(fd)
+        if len(raw) > 4096:
+            return False
+        document = json.loads(raw)
+        if not isinstance(document, dict) or not isinstance(document.get("path"), str):
+            return False
+        expected = Path(document["path"])
+        uid, gid = document.get("uid"), document.get("gid")
+        if (not expected.is_absolute() or len(expected.parts) < 3
+                or type(uid) is not int or type(gid) is not int or min(uid, gid) < 0):
+            return False
+        candidate = Path(path).resolve(strict=True)
+        if expected.resolve(strict=True) != expected or candidate != expected:
+            return False
+        directory = candidate.stat()
+        return (stat.S_ISDIR(directory.st_mode) and directory.st_uid == uid
+                and directory.st_gid == gid)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False
+
+
 def secure_parent_dir(path: Path) -> None:
-    """Chmod ``0o700`` on *path*'s parent, refusing ``/`` and top-level dirs (misresolved HERMES_HOME)."""
+    """Harden private parents, preserving the exact root-delegated shared home."""
     parent = path.parent.resolve()
     if parent == Path("/") or len(parent.parts) < 3:
+        return
+    if _operator_managed_home_acl(parent):
         return
     # Refuse the install tree: chmod 0700 breaks hermes-user traversal in Docker (UID 10000).
     # A credential file here means HERMES_HOME misresolved; surface it (caused production lockouts).
@@ -869,7 +921,7 @@ def apply_secure_dir_policy(path, *, home: str | Path | None = None) -> None:
     Import-safe twin of ``hermes_cli.config._secure_dir`` (which delegates here), so callers
     outside the CLI package — like :func:`get_scratch_dir` — share one policy implementation.
     """
-    if get_managed_system(home) is not None:
+    if _operator_managed_home_acl(path) or get_managed_system(home) is not None:
         return
     explicit_mode = os.environ.get("HERMES_HOME_MODE", "").strip()
     if _container_or_chmod_skipped() and not explicit_mode:

@@ -1652,9 +1652,13 @@ def _cron_tick_profile_homes(config: object) -> list[tuple[str, "Path"]]:
     profile: ``profiles_to_serve`` lists default + every live named profile, but a ``--profile
     <name>`` gateway's own profile may sit outside ``profiles/`` (custom HERMES_HOME). One host
     process ticks all of them regardless of ``gateway.multiplex_profiles``. Adapter startup
-    already skips ``active``."""
-    from hermes_cli.profiles import get_active_profile_name, get_profile_dir
+    already skips ``active``. Explicit standalone gateways tick only their own profile."""
+    from hermes_constants import get_hermes_home
+    from hermes_cli.profiles import (get_active_profile_name, get_profile_dir,
+                                     profile_is_standalone, profiles_to_serve)
 
+    if profile_is_standalone(get_hermes_home()):
+        return list(profiles_to_serve(multiplex=False))
     homes = _multiplex_profile_homes(config)
     active = get_active_profile_name() or "default"  # launch profile, pre-identity (ticker boot)
     if any(name == active for name, _home in homes):
