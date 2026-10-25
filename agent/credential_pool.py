@@ -837,10 +837,9 @@ def _store_owns_pool_provider(auth_store: Dict[str, Any], provider: str) -> bool
 
 
 def _profile_owns_pool_provider(provider: str) -> bool:
-    """True when the ACTIVE auth.json has its own rows for *provider*.
+    """True when the ACTIVE auth.json owns pool rows or a singleton token grant.
 
-    Named profiles with no local rows read the provider through the
-    ``read_credential_pool`` global-root fallback ("borrowing").
+    Named profiles without either borrow through the global-root fallback.
     """
     # Classic mode (profile == root) has no root fallback, so the answer is always "owns";
     # skip the per-call auth.json re-read on this hot load_pool path.
@@ -850,7 +849,13 @@ def _profile_owns_pool_provider(provider: str) -> bool:
         auth_store = _load_auth_store()
     except Exception:
         return True  # unreadable store: assume ownership, keep legacy path
-    return _store_owns_pool_provider(auth_store, provider)
+    if _store_owns_pool_provider(auth_store, provider):
+        return True
+    # A profile's independent singleton grant can seed its first pool row on this
+    # flush. It is not a root borrower merely because that row is not on disk yet.
+    state = auth_mod._provider_state_in(auth_store, provider) or {}
+    tokens = state.get("tokens")
+    return isinstance(tokens, dict) and bool(tokens.get("access_token") or tokens.get("refresh_token"))
 
 
 def _borrowed_single_use_pool_root() -> Optional[Path]:
@@ -1144,7 +1149,20 @@ class CredentialPool(CredentialPoolAdminMixin, CredentialPoolModelCooldownMixin)
             if written is None:
                 return
             rows = auth_mod._entry_ids(written)
+            if self.provider in SINGLE_USE_REFRESH_POOL_PROVIDERS and not _profile_owns_pool_provider(self.provider):
+                self._borrowed_root_ids = set(rows)
             self._persisted_token_pairs = auth_mod._token_pairs_by_id(written)
+            # The successful writer's membership is authoritative; keep surviving live
+            # objects so reference secrets, counters and leases are not reinitialized.
+            self._entries = [entry for entry in self._entries if entry.id in rows]
+            if self._current_id not in rows:
+                self._current_id = None
+            live_ids = {entry.id for entry in self._entries}
+            self._entries.extend(
+                PooledCredential.from_dict(self.provider, row)
+                for cid, row in rows.items() if cid not in live_ids
+            )
+            self._entries.sort(key=lambda entry: entry.priority)
             for entry in self._entries:
                 row = rows.get(entry.id)
                 pair = self._persisted_token_pairs.get(entry.id, (None, None))

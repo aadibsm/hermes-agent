@@ -1074,7 +1074,10 @@ def write_credential_pool(
                 status_cleared=e.get("id") in status_cleared,
             )
             if isinstance(e, dict) else e
-            for e in sanitized]
+            for e in sanitized
+            # A known baseline row missing from disk was deleted by its owner, not added
+            # locally. Test membership, since reference-only baselines have blank pairs.
+            if not isinstance(e, dict) or e.get("id") not in bases or e.get("id") in existing_by_id]
         for disk_entry in existing_list:
             disk_id = disk_entry.get("id") if isinstance(disk_entry, dict) else None
             if disk_id and disk_id not in new_ids and disk_id not in removed:
